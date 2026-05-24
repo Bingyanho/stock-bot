@@ -150,6 +150,14 @@ def trade_history_summary(account: dict, limit: int = 10) -> str:
 
     lines = []
     for trade in trades[-limit:][::-1]:
+        if trade.get("Side") == "UNDO":
+            lines.append(
+                f"{trade.get('Time', '')}｜撤銷 {trade.get('Target_Side', '')} "
+                f"{trade.get('Name') or get_name(trade.get('Ticker', ''))}（{trade.get('Ticker', '')}）｜"
+                f"現金 {float(trade.get('Cash_After', 0)):,.0f}"
+            )
+            continue
+
         side = "買進" if trade.get("Side") == "BUY" else "賣出"
         ticker = trade.get("Ticker", "")
         name = trade.get("Name") or get_name(ticker)
@@ -283,6 +291,7 @@ def sync_sell(account_id: str, ticker: str, real_price: float, real_shares: int 
     cost_basis = entry_price * sell_shares + allocated_buy_fee
     pnl = net - cost_basis
     pnl_pct = pnl / cost_basis * 100 if cost_basis > 0 else 0
+    before_position = dict(pos)
 
     remaining = held_shares - sell_shares
     if remaining == 0:
@@ -309,6 +318,9 @@ def sync_sell(account_id: str, ticker: str, real_price: float, real_shares: int 
         "Pnl_Pct": pnl_pct,
         "Cash_After": account["cash"],
         "Action": action,
+        "Before_Position": before_position,
+        "Remaining_Shares": remaining,
+        "Remaining_Buy_Fee": pos.get("Buy_Fee", 0) if remaining > 0 else 0,
     })
     save_account(account, account_id)
     status = "全賣" if remaining == 0 else f"剩 {remaining}股"
@@ -357,6 +369,78 @@ def preview_sell(account_id: str, ticker: str, real_price: float, real_shares: i
         f"同步後現金：{projected_cash:,.0f}"
     )
     return ticker, sell_shares, msg
+
+
+def last_undoable_trade(account: dict) -> tuple[int, dict]:
+    trades = account.get("trades", [])
+    undone_targets = {
+        trade.get("Target_Index")
+        for trade in trades
+        if trade.get("Side") == "UNDO" and trade.get("Target_Index") is not None
+    }
+    for index in range(len(trades) - 1, -1, -1):
+        trade = trades[index]
+        if trade.get("Side") in {"BUY", "SELL"} and index not in undone_targets:
+            return index, trade
+    raise ValueError("目前沒有可撤銷的交易。")
+
+
+def undo_last_trade(account_id: str) -> str:
+    account = load_account(account_id)
+    target_index, trade = last_undoable_trade(account)
+    side = trade.get("Side")
+    ticker = trade.get("Ticker")
+    name = trade.get("Name") or get_name(ticker)
+    cash_before_undo = float(account.get("cash", 0))
+
+    if side == "BUY":
+        pos = find_position(account, ticker)
+        shares = int(trade.get("Shares", 0))
+        total_cost = float(trade.get("Total_Cost", 0))
+        if not pos or int(pos.get("Shares", 0)) < shares:
+            raise ValueError("目前持股不足，無法安全撤銷最近買進。")
+
+        remaining = int(pos.get("Shares", 0)) - shares
+        buy_fee = int(pos.get("Buy_Fee", 0))
+        trade_fee = int(trade.get("Fee", 0))
+        if remaining <= 0:
+            account["portfolio"] = [p for p in account.get("portfolio", []) if p.get("Ticker") != ticker]
+        else:
+            pos["Shares"] = remaining
+            pos["Buy_Fee"] = max(0, buy_fee - trade_fee)
+            if remaining > 0:
+                pos["Entry_Price"] = float(pos.get("Entry_Price", trade.get("Price", 0)))
+        account["cash"] = cash_before_undo + total_cost
+
+    elif side == "SELL":
+        before_position = trade.get("Before_Position")
+        if not before_position:
+            raise ValueError("這筆賣出缺少還原資料，無法安全撤銷。")
+
+        account["portfolio"] = [
+            p for p in account.get("portfolio", []) if p.get("Ticker") != ticker
+        ]
+        account.setdefault("portfolio", []).append(before_position)
+        account.get("cooldowns", {}).pop(ticker, None)
+        account["cash"] = cash_before_undo - float(trade.get("Net", 0))
+
+    else:
+        raise ValueError("最近一筆交易不是買進或賣出，無法撤銷。")
+
+    append_trade(account, {
+        "Side": "UNDO",
+        "Target_Index": target_index,
+        "Target_Side": side,
+        "Ticker": ticker,
+        "Name": name,
+        "Shares": int(trade.get("Shares", 0)),
+        "Price": float(trade.get("Price", 0)),
+        "Cash_Before": cash_before_undo,
+        "Cash_After": account["cash"],
+    })
+    save_account(account, account_id)
+    action = "買進" if side == "BUY" else "賣出"
+    return f"✅ 已撤銷最近一筆{action}｜{name}（{ticker}）｜現金 {account['cash']:,.0f}"
 
 
 def sync_cash(account_id: str, new_cash: float) -> str:
@@ -790,6 +874,7 @@ class ControlPanel(discord.ui.View):
         "stock_bot:buy": {"sync"},
         "stock_bot:sell": {"sync"},
         "stock_bot:holding": {"sync"},
+        "stock_bot:undo": {"sync"},
         "stock_bot:cash": {"settings"},
         "stock_bot:cost": {"settings"},
         "stock_bot:account": {"query"},
@@ -844,6 +929,14 @@ class ControlPanel(discord.ui.View):
     async def holding(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(HoldingModal())
 
+    @discord.ui.button(label="撤銷最近交易", style=discord.ButtonStyle.secondary, custom_id="stock_bot:undo", row=1)
+    async def undo(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            msg = undo_last_trade(user_account_id(interaction.user))
+            await interaction.response.send_message(msg, ephemeral=True)
+        except ValueError as e:
+            await interaction.response.send_message(f"⚠️ {e}", ephemeral=True)
+
     @discord.ui.button(label="修改現金", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cash", row=2)
     async def cash(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CashModal())
@@ -888,7 +981,7 @@ def control_panel_text(page: str = "home") -> str:
     title = "**股票帳戶操作面板**"
     pages = {
         "home": "策略只提供建議；實際成交請自行同步。",
-        "sync": "**帳戶同步**\n買進、賣出、同步持股。",
+        "sync": "**帳戶同步**\n買進、賣出、同步持股、撤銷最近交易。",
         "settings": "**帳戶設定**\n修改現金與投入成本。",
         "query": "**查詢**\n帳戶總覽、目前持股、交易紀錄。",
     }

@@ -82,6 +82,48 @@ class BotHelperTest(unittest.TestCase):
         finally:
             account_store.ACCOUNTS_DIR = old_accounts_dir
 
+    def test_undo_last_buy_restores_cash_and_removes_position(self):
+        old_accounts_dir = account_store.ACCOUNTS_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                account_store.ACCOUNTS_DIR = tmp
+                account_id = "tester"
+                initial_cash = account_store.load_account(account_id)["cash"]
+
+                bot.sync_buy(account_id, "2303", 70.0, 100)
+                msg = bot.undo_last_trade(account_id)
+                account = account_store.load_account(account_id)
+
+                self.assertIn("已撤銷", msg)
+                self.assertEqual(account["cash"], initial_cash)
+                self.assertEqual(account["portfolio"], [])
+                self.assertEqual(account["trades"][-1]["Side"], "UNDO")
+        finally:
+            account_store.ACCOUNTS_DIR = old_accounts_dir
+
+    def test_undo_last_sell_restores_previous_position(self):
+        old_accounts_dir = account_store.ACCOUNTS_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                account_store.ACCOUNTS_DIR = tmp
+                account_id = "tester"
+
+                bot.sync_buy(account_id, "2303", 70.0, 100)
+                after_buy = account_store.load_account(account_id)
+                cash_after_buy = after_buy["cash"]
+                before_sell_position = dict(after_buy["portfolio"][0])
+
+                bot.sync_sell(account_id, "2303", 80.0, 50)
+                bot.undo_last_trade(account_id)
+                account = account_store.load_account(account_id)
+
+                self.assertEqual(account["cash"], cash_after_buy)
+                self.assertEqual(account["portfolio"][0]["Shares"], before_sell_position["Shares"])
+                self.assertEqual(account["portfolio"][0]["Buy_Fee"], before_sell_position["Buy_Fee"])
+                self.assertEqual(account["trades"][-1]["Side"], "UNDO")
+        finally:
+            account_store.ACCOUNTS_DIR = old_accounts_dir
+
 
 if __name__ == "__main__":
     unittest.main()
