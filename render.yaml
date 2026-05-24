@@ -1,0 +1,14 @@
+services:
+  - type: worker
+    name: stock-discord-bot
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: ACCOUNTS_DIR
+        value: /app/accounts
+    disk:
+      name: stock-accounts
+      mountPath: /app/accounts
+      sizeGB: 1

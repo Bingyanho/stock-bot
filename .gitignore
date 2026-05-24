@@ -1,0 +1,20 @@
+# 機密檔案
+.env
+
+# 帳戶狀態（含持倉資料）
+trading_account.json
+trading_account.json.tmp
+accounts/
+
+# 日誌
+*.log
+
+# 快取
+__pycache__/
+*.pyc
+
+# 資料輸出
+equity_curve.csv
+trade_log.csv
+backtest_result.png
+watchlist.txt

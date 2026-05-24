@@ -1,0 +1,13 @@
+.env
+accounts/
+__pycache__/
+*.pyc
+*.log
+trading_account.json
+trading_account.json.tmp
+equity_curve.csv
+trade_log.csv
+backtest_result.png
+.git/
+.gitignore
+tests/
