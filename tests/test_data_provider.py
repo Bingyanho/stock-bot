@@ -25,6 +25,20 @@ class DataProviderTest(unittest.TestCase):
         self.assertEqual(data_provider.ticker_to_stock_id("2303.TW"), "2303")
         self.assertEqual(data_provider.ticker_to_stock_id("6274.TWO"), "6274")
 
+    def test_adjust_split_jumps_backward_adjusts_large_price_gaps(self):
+        df = pd.DataFrame(
+            {
+                "open": [180.0, 188.0, 47.0, 48.0],
+                "close": [188.0, 188.0, 47.0, 48.0],
+            },
+            index=pd.to_datetime(["2025-06-09", "2025-06-10", "2025-06-18", "2025-06-19"]),
+        )
+
+        adjusted = data_provider.adjust_split_jumps(df)
+
+        self.assertAlmostEqual(float(adjusted["close"].iloc[1]), 47.0)
+        self.assertAlmostEqual(float(adjusted["close"].iloc[2]), 47.0)
+
     @patch("data_provider.fetch_yfinance_ohlc")
     @patch("data_provider.fetch_finmind_ohlc")
     def test_download_ohlc_prices_uses_finmind_first(self, finmind_mock, yfinance_mock):

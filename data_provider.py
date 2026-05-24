@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
+from pathlib import Path
+import tempfile
 
 import pandas as pd
 import requests
@@ -11,12 +13,34 @@ from config import FINMIND_TOKEN
 
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 FINMIND_DATASETS = ("TaiwanStockPriceAdj", "TaiwanStockPrice")
+SPLIT_JUMP_THRESHOLD = 0.5
 
 logging.getLogger("yfinance").setLevel(logging.WARNING)
+YFINANCE_CACHE_DIR = Path(tempfile.gettempdir()) / "stock-bot-yfinance-cache"
+YFINANCE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+yf.set_tz_cache_location(str(YFINANCE_CACHE_DIR))
 
 
 def ticker_to_stock_id(ticker: str) -> str:
-    return ticker.replace(".TW", "").replace(".TWO", "")
+    return ticker.replace(".TWO", "").replace(".TW", "")
+
+
+def adjust_split_jumps(df: pd.DataFrame) -> pd.DataFrame:
+    adjusted = df.sort_index().copy()
+    close_values = adjusted["close"].to_numpy(copy=True)
+
+    for idx in range(1, len(adjusted)):
+        prev_close = close_values[idx - 1]
+        curr_close = close_values[idx]
+        if prev_close <= 0 or curr_close <= 0:
+            continue
+
+        ratio = curr_close / prev_close
+        if ratio < SPLIT_JUMP_THRESHOLD or ratio > (1 / SPLIT_JUMP_THRESHOLD):
+            adjusted.iloc[:idx] = adjusted.iloc[:idx] * ratio
+            close_values[:idx] = close_values[:idx] * ratio
+
+    return adjusted
 
 
 def resolve_dates(period: str | None = None, start: str | None = None, end: str | None = None):
@@ -58,7 +82,7 @@ def fetch_finmind_dataset(ticker: str, dataset: str, start: str, end: str) -> pd
 
     df["date"] = pd.to_datetime(df["date"])
     df = df.set_index("date").sort_index()
-    return df[["open", "close"]].astype(float)
+    return adjust_split_jumps(df[["open", "close"]].astype(float))
 
 
 def fetch_finmind_ohlc(ticker: str, start: str, end: str) -> pd.DataFrame:
@@ -82,6 +106,7 @@ def fetch_yfinance_ohlc(tickers: list[str], start: str, end: str):
         auto_adjust=True,
         progress=False,
         group_by="column",
+        threads=False,
     )
     if raw.empty:
         return pd.DataFrame(), pd.DataFrame()
