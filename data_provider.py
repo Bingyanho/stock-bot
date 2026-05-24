@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from os import getpid
-from pathlib import Path
-from uuid import uuid4
+import logging
 
 import pandas as pd
 import requests
@@ -14,11 +12,7 @@ from config import FINMIND_TOKEN
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 FINMIND_DATASETS = ("TaiwanStockPriceAdj", "TaiwanStockPrice")
 
-try:
-    yf_cache_dir = Path("/tmp") / f"py-yfinance-cache-{getpid()}-{uuid4().hex}"
-    yf.set_tz_cache_location(str(yf_cache_dir))
-except Exception:
-    pass
+logging.getLogger("yfinance").setLevel(logging.WARNING)
 
 
 def ticker_to_stock_id(ticker: str) -> str:
