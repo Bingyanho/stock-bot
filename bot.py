@@ -743,6 +743,16 @@ class QueryPanel(discord.ui.View):
             ephemeral=True,
         )
 
+
+class ConsolePanel(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="控制台", style=discord.ButtonStyle.primary, custom_id="stock_bot:console")
+    async def console(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message("已重新開啟控制台。", ephemeral=True)
+        await send_panel(interaction.user)
+
 # ==========================================
 # 3. 面板入口
 # ==========================================
@@ -751,27 +761,23 @@ PANEL_TRIGGERS = {"run"}
 
 async def send_panel(user):
     await user.send(
-        "**股票帳戶操作面板**\n"
-        "所有操作都在這裡完成。策略只提供建議，實際成交請自行同步。"
+        "**股票帳戶操作面板**",
+        view=ConsolePanel(),
     )
     await user.send(
-        "**策略**\n"
-        "產生今日建議",
+        "**策略**",
         view=StrategyPanel(),
     )
     await user.send(
-        "**帳戶同步**\n"
-        "買進、賣出、同步持股",
+        "**帳戶同步**",
         view=AccountSyncPanel(),
     )
     await user.send(
-        "**帳戶設定**\n"
-        "修改現金、修改投入成本",
+        "**帳戶設定**",
         view=AccountSettingsPanel(),
     )
     await user.send(
-        "**查詢**\n"
-        "帳戶總覽、目前持股、交易紀錄",
+        "**查詢**",
         view=QueryPanel(),
     )
 
@@ -780,6 +786,7 @@ async def send_panel(user):
 async def on_ready():
     global panel_view_registered
     if not panel_view_registered:
+        bot.add_view(ConsolePanel())
         bot.add_view(StrategyPanel())
         bot.add_view(AccountSyncPanel())
         bot.add_view(AccountSettingsPanel())
