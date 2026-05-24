@@ -1,5 +1,7 @@
 import unittest
+import tempfile
 
+import account_store
 import bot
 
 
@@ -26,6 +28,31 @@ class BotHelperTest(unittest.TestCase):
 
         self.assertEqual(summary["fields"][0]["value"], "聯電")
         self.assertEqual(summary["fields"][1]["value"], "群創、大立光")
+
+    def test_sync_buy_and_sell_append_trade_records(self):
+        old_accounts_dir = account_store.ACCOUNTS_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                account_store.ACCOUNTS_DIR = tmp
+                account_id = "tester"
+
+                bot.sync_buy(account_id, "2303", 70.0, 100)
+                account = account_store.load_account(account_id)
+                self.assertEqual(len(account["trades"]), 1)
+                self.assertEqual(account["trades"][0]["Side"], "BUY")
+                self.assertEqual(account["trades"][0]["Ticker"], "2303.TW")
+
+                bot.sync_sell(account_id, "2303", 80.0, 50)
+                account = account_store.load_account(account_id)
+                self.assertEqual(len(account["trades"]), 2)
+                self.assertEqual(account["trades"][1]["Side"], "SELL")
+                self.assertIn("Pnl", account["trades"][1])
+
+                history = bot.trade_history_summary(account)
+                self.assertIn("買進", history)
+                self.assertIn("賣出", history)
+        finally:
+            account_store.ACCOUNTS_DIR = old_accounts_dir
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ def default_account() -> dict:
         "invested_capital": INITIAL_CAPITAL,
         "portfolio": [],
         "cooldowns": {},
+        "trades": [],
     }
 
 
@@ -41,6 +42,7 @@ def load_account(account_id: str | None = None) -> dict:
     account.setdefault("invested_capital", INITIAL_CAPITAL)
     account.setdefault("portfolio", [])
     account.setdefault("cooldowns", {})
+    account.setdefault("trades", [])
     return account
 
 

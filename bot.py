@@ -73,6 +73,10 @@ def today_str() -> str:
     return datetime.today().strftime("%Y-%m-%d")
 
 
+def now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 def account_summary(account: dict) -> str:
     portfolio = account.get("portfolio", [])
     msg = (
@@ -90,6 +94,44 @@ def account_summary(account: dict) -> str:
             f"{p['Shares']} 股 @ {p['Entry_Price']}，高點 {p.get('Peak_Price', p['Entry_Price'])}\n"
         )
     return msg
+
+
+def append_trade(account: dict, trade: dict) -> None:
+    account.setdefault("trades", []).append({
+        "Time": now_str(),
+        **trade,
+    })
+
+
+def trade_history_summary(account: dict, limit: int = 10) -> str:
+    trades = account.get("trades", [])
+    if not trades:
+        return "目前沒有交易紀錄。"
+
+    lines = []
+    for trade in trades[-limit:][::-1]:
+        side = "買進" if trade.get("Side") == "BUY" else "賣出"
+        ticker = trade.get("Ticker", "")
+        name = trade.get("Name") or get_name(ticker)
+        shares = int(trade.get("Shares", 0))
+        price = float(trade.get("Price", 0))
+        time = trade.get("Time", "")
+        cash_after = float(trade.get("Cash_After", 0))
+        if trade.get("Side") == "SELL":
+            pnl = float(trade.get("Pnl", 0))
+            pnl_pct = float(trade.get("Pnl_Pct", 0))
+            lines.append(
+                f"{time}｜{side} {name}（{ticker}）｜{shares}股 @ {price:.2f}｜"
+                f"損益 {pnl:,.0f} ({pnl_pct:.2f}%)｜現金 {cash_after:,.0f}"
+            )
+        else:
+            total_cost = float(trade.get("Total_Cost", 0))
+            lines.append(
+                f"{time}｜{side} {name}（{ticker}）｜{shares}股 @ {price:.2f}｜"
+                f"成本 {total_cost:,.0f}｜現金 {cash_after:,.0f}"
+            )
+
+    return "\n".join(lines)
 
 
 def sync_buy(account_id: str, ticker: str, real_price: float, real_shares: int) -> str:
@@ -127,6 +169,19 @@ def sync_buy(account_id: str, ticker: str, real_price: float, real_shares: int) 
         "Entry_Date": pos.get("Entry_Date", today_str()),
     })
     account["cash"] -= total_cost
+    append_trade(account, {
+        "Side": "BUY",
+        "Ticker": ticker,
+        "Name": get_name(ticker),
+        "Shares": real_shares,
+        "Price": real_price,
+        "Gross": gross,
+        "Fee": fee,
+        "Tax": 0,
+        "Total_Cost": total_cost,
+        "Cash_After": account["cash"],
+        "Action": action,
+    })
     save_account(account, account_id)
     return (
         f"✅ 買進已同步｜{action} {get_name(ticker)}（{ticker}）\n"
@@ -199,6 +254,22 @@ def sync_sell(account_id: str, ticker: str, real_price: float, real_shares: int 
         pos["Buy_Fee"] = max(0, buy_fee - allocated_buy_fee)
         action = f"部分賣出，剩餘 {remaining} 股"
 
+    append_trade(account, {
+        "Side": "SELL",
+        "Ticker": ticker,
+        "Name": get_name(ticker),
+        "Shares": sell_shares,
+        "Price": real_price,
+        "Gross": gross,
+        "Fee": fee,
+        "Tax": tax,
+        "Net": net,
+        "Cost_Basis": cost_basis,
+        "Pnl": pnl,
+        "Pnl_Pct": pnl_pct,
+        "Cash_After": account["cash"],
+        "Action": action,
+    })
     save_account(account, account_id)
     status = "全賣" if remaining == 0 else f"剩 {remaining}股"
     return (
@@ -625,6 +696,14 @@ class AccountPanel(discord.ui.View):
             ephemeral=True,
         )
 
+    @discord.ui.button(label="交易紀錄", style=discord.ButtonStyle.secondary, custom_id="stock_bot:trades")
+    async def trades(self, interaction: discord.Interaction, button: discord.ui.Button):
+        account = load_account(user_account_id(interaction.user))
+        await interaction.response.send_message(
+            f"📒 **最近交易紀錄**\n{trade_history_summary(account)}",
+            ephemeral=True,
+        )
+
 # ==========================================
 # 3. 面板入口
 # ==========================================
@@ -634,7 +713,7 @@ PANEL_TRIGGERS = {"run"}
 async def send_panel(user):
     await user.send(
         "**股票帳戶操作面板**\n"
-        "私人面板：策略、買進、賣出、現金、成本、持股、帳戶。",
+        "私人面板：策略、買進、賣出、現金、成本、持股、帳戶、交易紀錄。",
         view=AccountPanel(),
     )
 
