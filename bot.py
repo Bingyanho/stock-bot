@@ -96,6 +96,22 @@ def account_summary(account: dict) -> str:
     return msg
 
 
+def holdings_summary(account: dict) -> str:
+    portfolio = account.get("portfolio", [])
+    if not portfolio:
+        return "目前無持股。"
+
+    lines = []
+    for p in portfolio:
+        ticker = p.get("Ticker", "")
+        lines.append(
+            f"- {p.get('Name') or get_name(ticker)}（{ticker}）｜"
+            f"{p.get('Shares', 0)}股｜成本 {float(p.get('Entry_Price', 0)):.2f}｜"
+            f"高點 {float(p.get('Peak_Price', p.get('Entry_Price', 0))):.2f}"
+        )
+    return "\n".join(lines)
+
+
 def append_trade(account: dict, trade: dict) -> None:
     account.setdefault("trades", []).append({
         "Time": now_str(),
@@ -659,7 +675,7 @@ class HoldingModal(discord.ui.Modal, title="同步持股"):
             await interaction.response.send_message(f"⚠️ {e}", ephemeral=True)
 
 
-class AccountPanel(discord.ui.View):
+class StrategyPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -667,6 +683,11 @@ class AccountPanel(discord.ui.View):
     async def run_strategy(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("收到，開始分析。", ephemeral=True)
         await run_strategy_and_send(interaction.followup.send, interaction.user)
+
+
+class AccountSyncPanel(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="買進", style=discord.ButtonStyle.success, custom_id="stock_bot:buy")
     async def buy(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -676,23 +697,41 @@ class AccountPanel(discord.ui.View):
     async def sell(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(SellModal())
 
-    @discord.ui.button(label="現金", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cash")
-    async def cash(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(CashModal())
-
-    @discord.ui.button(label="成本", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cost")
-    async def cost(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(CostModal())
-
     @discord.ui.button(label="同步持股", style=discord.ButtonStyle.secondary, custom_id="stock_bot:holding")
     async def holding(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(HoldingModal())
 
-    @discord.ui.button(label="帳戶", style=discord.ButtonStyle.secondary, custom_id="stock_bot:account")
+
+class AccountSettingsPanel(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="修改現金", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cash")
+    async def cash(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CashModal())
+
+    @discord.ui.button(label="修改投入成本", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cost")
+    async def cost(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CostModal())
+
+
+class QueryPanel(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="帳戶總覽", style=discord.ButtonStyle.secondary, custom_id="stock_bot:account")
     async def account(self, interaction: discord.Interaction, button: discord.ui.Button):
         account = load_account(user_account_id(interaction.user))
         await interaction.response.send_message(
             f"💰 **{user_label(interaction.user)} 的帳戶狀態**\n{account_summary(account)}",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="目前持股", style=discord.ButtonStyle.secondary, custom_id="stock_bot:holdings")
+    async def holdings(self, interaction: discord.Interaction, button: discord.ui.Button):
+        account = load_account(user_account_id(interaction.user))
+        await interaction.response.send_message(
+            f"📊 **目前持股**\n{holdings_summary(account)}",
             ephemeral=True,
         )
 
@@ -713,8 +752,27 @@ PANEL_TRIGGERS = {"run"}
 async def send_panel(user):
     await user.send(
         "**股票帳戶操作面板**\n"
-        "私人面板：策略、買進、賣出、現金、成本、持股、帳戶、交易紀錄。",
-        view=AccountPanel(),
+        "所有操作都在這裡完成。策略只提供建議，實際成交請自行同步。"
+    )
+    await user.send(
+        "**策略**\n"
+        "產生今日建議",
+        view=StrategyPanel(),
+    )
+    await user.send(
+        "**帳戶同步**\n"
+        "買進、賣出、同步持股",
+        view=AccountSyncPanel(),
+    )
+    await user.send(
+        "**帳戶設定**\n"
+        "修改現金、修改投入成本",
+        view=AccountSettingsPanel(),
+    )
+    await user.send(
+        "**查詢**\n"
+        "帳戶總覽、目前持股、交易紀錄",
+        view=QueryPanel(),
     )
 
 
@@ -722,7 +780,10 @@ async def send_panel(user):
 async def on_ready():
     global panel_view_registered
     if not panel_view_registered:
-        bot.add_view(AccountPanel())
+        bot.add_view(StrategyPanel())
+        bot.add_view(AccountSyncPanel())
+        bot.add_view(AccountSettingsPanel())
+        bot.add_view(QueryPanel())
         panel_view_registered = True
     print(f"✅ 機器人 {bot.user} 已上線。輸入「run」即可開啟操作介面。")
 
