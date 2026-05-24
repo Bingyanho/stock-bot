@@ -759,30 +759,32 @@ class ConsolePanel(discord.ui.View):
 PANEL_TRIGGERS = {"run"}
 
 
-def panel_embed(title: str, description: str = "") -> discord.Embed:
-    embed = discord.Embed(title=title, description=description, color=0x2F80ED)
-    return embed
+def panel_block(title: str, description: str = "") -> str:
+    body = f"**{title}**"
+    if description:
+        body += f"\n{description}"
+    return f"━━━━━━━━━━━━\n{body}"
 
 
 async def send_panel(user):
     await user.send(
-        embed=panel_embed("股票帳戶操作面板", "策略只提供建議；實際成交請用面板同步。"),
+        panel_block("股票帳戶操作面板", "策略只提供建議；實際成交請用面板同步。"),
         view=ConsolePanel(),
     )
     await user.send(
-        embed=panel_embed("策略"),
+        panel_block("策略"),
         view=StrategyPanel(),
     )
     await user.send(
-        embed=panel_embed("帳戶同步"),
+        panel_block("帳戶同步"),
         view=AccountSyncPanel(),
     )
     await user.send(
-        embed=panel_embed("帳戶設定"),
+        panel_block("帳戶設定"),
         view=AccountSettingsPanel(),
     )
     await user.send(
-        embed=panel_embed("查詢"),
+        panel_block("查詢"),
         view=QueryPanel(),
     )
 
