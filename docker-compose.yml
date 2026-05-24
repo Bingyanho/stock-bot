@@ -4,6 +4,7 @@ services:
     restart: unless-stopped
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      FINMIND_TOKEN: ${FINMIND_TOKEN:-}
       ACCOUNTS_DIR: /app/accounts
     volumes:
       - ./accounts:/app/accounts

@@ -28,6 +28,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix=commands.when_mentioned_or("!", "$"), intents=intents)
 bot.remove_command("help")
+panel_view_registered = False
 
 # ==========================================
 # 2. 工具函數
@@ -355,32 +356,32 @@ class AccountPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="產生策略", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="產生策略", style=discord.ButtonStyle.primary, custom_id="stock_bot:run_strategy")
     async def run_strategy(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("收到，開始分析。", ephemeral=True)
         await run_strategy_and_send(interaction.followup.send, interaction.user)
 
-    @discord.ui.button(label="買進", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="買進", style=discord.ButtonStyle.success, custom_id="stock_bot:buy")
     async def buy(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BuyModal())
 
-    @discord.ui.button(label="賣出", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="賣出", style=discord.ButtonStyle.danger, custom_id="stock_bot:sell")
     async def sell(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(SellModal())
 
-    @discord.ui.button(label="現金", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="現金", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cash")
     async def cash(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CashModal())
 
-    @discord.ui.button(label="成本", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="成本", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cost")
     async def cost(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CostModal())
 
-    @discord.ui.button(label="同步持股", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="同步持股", style=discord.ButtonStyle.secondary, custom_id="stock_bot:holding")
     async def holding(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(HoldingModal())
 
-    @discord.ui.button(label="帳戶", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="帳戶", style=discord.ButtonStyle.secondary, custom_id="stock_bot:account")
     async def account(self, interaction: discord.Interaction, button: discord.ui.Button):
         account = load_account(user_account_id(interaction.user))
         await interaction.response.send_message(
@@ -404,6 +405,10 @@ async def send_panel(user):
 
 @bot.event
 async def on_ready():
+    global panel_view_registered
+    if not panel_view_registered:
+        bot.add_view(AccountPanel())
+        panel_view_registered = True
     print(f"✅ 機器人 {bot.user} 已上線。輸入「run」即可開啟操作介面。")
 
 

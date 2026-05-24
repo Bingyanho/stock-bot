@@ -1,66 +1,122 @@
 # Stock Bot
 
-Discord 私訊面板版台股量化交易助理。系統會每天掃描股票池、依趨勢與動能產生買賣建議，實際成交後由使用者在 Discord 私訊面板同步帳戶。
+這是一套 Discord 股票帳戶同步與量化策略提醒系統，主要用來管理台股持股、現金、投入成本，並產生每日策略建議。
 
-目前部署方式：Google Cloud VM + Docker Compose。
+目前版本的核心原則：
+
+- Discord 使用者輸入 `run` 呼叫私訊操作面板。
+- 所有帳戶操作都在 Discord 面板完成，不再依賴文字指令。
+- 每個 Discord 使用者有自己的帳戶檔案。
+- `trend_trader.py` 只讀取帳戶並產生策略建議，不會自動買進、賣出、改現金或改成本。
+- 策略執行時仍會更新既有持股的 `Peak_Price`，用於移動停利判斷。
+- 市場資料來源採用「FinMind 優先，yfinance 備援」。
 
 ## 功能
 
-- 每位 Discord 使用者都有獨立帳戶。
-- 在 Discord 頻道輸入 `run`，bot 會私訊私人操作面板。
-- 面板支援：
-  - `產生策略`: 掃描股票池並產生今日建議。
-  - `買進`: 用真實成交價與股數同步買進。
-  - `賣出`: 用真實成交價與股數同步賣出。
-  - `現金`: 校正可用現金。
-  - `成本`: 設定報酬率分母，也就是投入成本。
-  - `同步持股`: 直接同步持股數、成本價、最高價。
-  - `帳戶`: 查詢自己的帳戶狀態。
-- `trend_trader.py` 不會自動寫入買賣結果，只會維護既有持股的 `Peak_Price`。
+- 私訊操作面板
+  - 產生策略
+  - 買進
+  - 賣出
+  - 修改現金
+  - 修改投入成本
+  - 同步持股
+  - 查詢帳戶
+- 多使用者帳戶
+  - 帳戶資料存在 `accounts/<discord_user_id>.json`
+  - 不同使用者互不影響
+- 台股代號補全
+  - 已知上市股票會補成 `.TW`
+  - 已知上櫃股票會補成 `.TWO`
+  - 例如輸入 `6274` 會自動辨識為 `6274.TWO`
+- 量化策略建議
+  - 掃描股票池
+  - 更新 watchlist
+  - 產生買進、賣出、持股、帳戶摘要
+  - 不直接修改實際帳戶交易紀錄
+
+## 資料來源
+
+資料取得集中在 `data_provider.py`。
+
+流程是：
+
+1. 先用 FinMind 取得台股 OHLC 資料。
+2. 單一股票 FinMind 失敗時，該股票改用 yfinance 備援。
+3. 如果 FinMind 與 yfinance 都失敗，才會讓策略或回測停止並顯示錯誤。
+
+`FINMIND_TOKEN` 建議設定。沒有 token 時系統仍會先嘗試 FinMind，再使用 yfinance 備援，但穩定性可能較差。
 
 ## 專案檔案
 
-- `bot.py`: Discord bot 與私訊操作面板。
-- `trend_trader.py`: 策略掃描、建議產生、Discord embed 格式。
-- `account_store.py`: 多使用者帳戶讀寫。
-- `config.py`: 股票池、策略參數、交易成本、環境變數。
-- `backtest.py`: 策略回測。
-- `Dockerfile`: 部署用 Docker image。
-- `docker-compose.yml`: VM 上長駐執行 bot。
-- `DEPLOYMENT.md`: 其他部署參考。
+- `bot.py`：Discord bot、私訊面板、所有實際帳戶操作
+- `trend_trader.py`：量化策略、策略回報、更新持股高點
+- `data_provider.py`：FinMind 優先、yfinance 備援的資料取得層
+- `account_store.py`：多使用者帳戶讀寫
+- `config.py`：股票池、參數、股票名稱、環境變數
+- `backtest.py`：策略回測
+- `Dockerfile`：部署用 Docker image
+- `docker-compose.yml`：Google Cloud VM 上長期執行 bot
+- `DEPLOYMENT.md`：部署補充說明
 
 ## 環境變數
 
-正式部署只需要：
+複製 `.env.example` 成 `.env`：
+
+```bash
+cp .env.example .env
+```
+
+`.env` 範例：
 
 ```dotenv
 DISCORD_BOT_TOKEN=你的 Discord Bot Token
+FINMIND_TOKEN=你的 FinMind Token
 ACCOUNTS_DIR=accounts
 ```
 
-`.env` 不要 commit 到 GitHub。
+說明：
+
+- `DISCORD_BOT_TOKEN`：必要。
+- `FINMIND_TOKEN`：建議設定，用於提高 FinMind 穩定性。
+- `ACCOUNTS_DIR`：帳戶資料資料夾，本機通常用 `accounts`，Docker 內使用 `/app/accounts`。
+
+不要把 `.env` commit 到 GitHub。
 
 ## 本機執行
 
 ```powershell
+cd C:\Users\bingyan\OneDrive\stock
 pip install -r requirements.txt
 Copy-Item .env.example .env
 python bot.py
 ```
 
-執行回測：
+回測：
 
 ```powershell
 python backtest.py
 ```
 
-## VM 部署
+測試：
 
-目前 VM 上的專案位置建議為：
-
-```bash
-~/stock
+```powershell
+python -m py_compile bot.py trend_trader.py data_provider.py account_store.py config.py backtest.py tests\test_config.py
+python -m unittest discover -s tests
 ```
+
+## Discord 使用方式
+
+在 bot 看得到的 Discord 頻道輸入：
+
+```text
+run
+```
+
+bot 會私訊你操作面板。面板按鈕才是目前正式操作方式，其他舊文字指令不再使用。
+
+如果伺服器頻道還看到舊的「股票帳戶操作面板」訊息，請手動刪除舊訊息。舊訊息上的按鈕可能會顯示「此交互失敗」，但新的 DM 面板可以正常使用。
+
+## Google Cloud VM 部署
 
 第一次部署：
 
@@ -79,69 +135,27 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-看到以下訊息代表 bot 已上線：
+確認容器狀態：
 
-```text
-機器人 <name> 已上線。輸入「run」即可開啟操作介面。
+```bash
+docker compose ps
 ```
-
-## Discord 使用方式
-
-在 bot 可以讀取訊息的頻道輸入：
-
-```text
-run
-```
-
-bot 會私訊你的操作面板。如果 bot 有刪除訊息權限，會刪除頻道裡的 `run`。
-
-如果沒有收到私訊，請確認：
-
-- Discord 使用者允許伺服器成員私訊。
-- bot 有 `Message Content Intent`。
-- bot 有讀取頻道訊息權限。
-
-## 多使用者帳戶
-
-每個 Discord 使用者會有自己的帳戶檔：
-
-```text
-accounts/<discord_user_id>.json
-```
-
-使用者之間互不影響。部署時 `accounts/` 必須保留在 VM 上，不要刪除。
 
 ## 修改程式後重新部署
 
-### 1. 本機修改程式
-
-在 Windows 本機：
+本機修改完後：
 
 ```powershell
 cd C:\Users\bingyan\OneDrive\stock
-```
-
-修改程式後先測試：
-
-```powershell
-python -m py_compile bot.py trend_trader.py account_store.py config.py backtest.py tests\test_config.py
+python -m py_compile bot.py trend_trader.py data_provider.py account_store.py config.py backtest.py tests\test_config.py
 python -m unittest discover -s tests
-```
-
-### 2. Commit 並推到 GitHub
-
-```powershell
 git status
 git add .
 git commit -m "Describe your change"
 git push
 ```
 
-注意：`.env`、`accounts/`、log、回測輸出都在 `.gitignore`，不應該被推上去。
-
-### 3. 到 VM 拉最新版並重啟
-
-在 Google Cloud VM SSH：
+到 VM 更新：
 
 ```bash
 cd ~/stock
@@ -150,58 +164,27 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-如果只改 README 或文件，不需要重啟 bot；如果改 `bot.py`、`trend_trader.py`、`config.py`、`account_store.py`，就要重新 build/restart。
+只要 `docker compose ps` 顯示服務是 `Up`，bot 就會持續執行。`docker-compose.yml` 設定了 `restart: unless-stopped`，VM 重開或程式異常結束時 Docker 會自動重啟。
 
-## 常用維護指令
+## 帳戶備份
 
-查看服務狀態：
-
-```bash
-docker compose ps
-```
-
-看 log：
-
-```bash
-docker compose logs -f
-```
-
-重啟：
-
-```bash
-docker compose restart
-```
-
-停止：
-
-```bash
-docker compose down
-```
-
-重新 build：
-
-```bash
-docker compose up -d --build
-```
-
-## 備份帳戶資料
-
-帳戶資料在 VM 的：
+帳戶資料在 VM：
 
 ```bash
 ~/stock/accounts
 ```
 
-建議定期備份：
+備份：
 
 ```bash
 cd ~/stock
 tar -czf accounts-backup-$(date +%Y%m%d).tar.gz accounts
 ```
 
-## 注意
+## 注意事項
 
-- 本系統只提供量化建議，不保證獲利。
-- yfinance 資料可能延遲、缺漏或受除權息資料影響。
-- `trend_trader.py` 只會更新持股最高價 `Peak_Price`，實際買賣必須由使用者在 Discord 面板同步。
-- `DISCORD_WEBHOOK_URL` 目前不是主流程需要的環境變數；私訊面板不使用 webhook。
+- 量化策略只供決策參考，不保證報酬。
+- 實際成交價格通常和策略參考價格不同，所以買進、賣出、現金、成本都必須由 Discord 面板同步。
+- `trend_trader.py` 不會替你建立實際買賣紀錄，但會更新既有持股的 `Peak_Price`。
+- `DISCORD_WEBHOOK_URL` 不是目前主流程需要的環境變數；私訊面板不使用 webhook。
+- FinMind 與 yfinance 都可能有延遲、缺漏或暫時失敗，正式交易前仍要自行確認券商資料。

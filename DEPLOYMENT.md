@@ -6,10 +6,12 @@ This project runs as a long-lived Discord bot worker. It does not need a public 
 
 ```dotenv
 DISCORD_BOT_TOKEN=your_discord_bot_token
+FINMIND_TOKEN=your_finmind_token
 ACCOUNTS_DIR=/app/accounts
 ```
 
 `DISCORD_WEBHOOK_URL` is not required for the private Discord panel flow.
+`FINMIND_TOKEN` is recommended. Market data uses FinMind first and yfinance as fallback.
 
 ## Data Persistence
 
@@ -35,6 +37,7 @@ Use `render.yaml` as a Blueprint or create a Background Worker manually:
 - Dockerfile: `Dockerfile`
 - Environment variables:
   - `DISCORD_BOT_TOKEN`
+  - `FINMIND_TOKEN`
   - `ACCOUNTS_DIR=/app/accounts`
 - Persistent disk:
   - Mount path: `/app/accounts`
@@ -45,6 +48,7 @@ Deploy the Dockerfile as a worker service. Set:
 
 ```dotenv
 DISCORD_BOT_TOKEN=your_discord_bot_token
+FINMIND_TOKEN=your_finmind_token
 ACCOUNTS_DIR=/app/accounts
 ```
 

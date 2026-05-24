@@ -7,10 +7,10 @@ warnings.filterwarnings("ignore")
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 import matplotlib.pyplot as plt
 from dataclasses import dataclass, field
 
+from data_provider import download_ohlc_prices
 from config import (
     BENCHMARK,
     COOLDOWN_DAYS,
@@ -108,19 +108,9 @@ def performance_metrics(equity: pd.Series) -> dict:
 # =========================================================
 def download_data(tickers, start=START_DATE, end=END_DATE):
     print(f"下載 {len(tickers)} 檔資料中 ({start} ~ {end or '今天'})...")
-    raw = yf.download(
-        tickers=tickers, start=start, end=end,
-        auto_adjust=True, progress=False, group_by="column"
-    )
-    if raw.empty:
-        raise ValueError("無法取得資料，請檢查代號或網路。")
-
-    open_df  = raw["Open"].copy()
-    close_df = raw["Close"].copy()
-
-    if isinstance(open_df, pd.Series):
-        open_df  = open_df.to_frame()
-        close_df = close_df.to_frame()
+    open_df, close_df = download_ohlc_prices(tickers, start=start, end=end)
+    if open_df.empty or close_df.empty:
+        raise ValueError("無法取得回測資料，請檢查 FinMind / yfinance 資料源。")
 
     idx      = open_df.index.intersection(close_df.index)
     open_df  = open_df.loc[idx].ffill()

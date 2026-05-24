@@ -25,6 +25,7 @@ WATCHLIST_FILE = "watchlist.txt"
 # Secrets
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+FINMIND_TOKEN = os.getenv("FINMIND_TOKEN", "").strip()
 
 # Portfolio settings
 INITIAL_CAPITAL = 200000

@@ -1,4 +1,3 @@
-import yfinance as yf
 import pandas as pd
 import requests
 import logging
@@ -30,6 +29,7 @@ from config import (
     calc_tax,
     get_name,
 )
+from data_provider import download_close_prices
 
 warnings.filterwarnings('ignore')
 
@@ -52,12 +52,10 @@ logger = logging.getLogger(__name__)
 def update_dynamic_watchlist():
     print(f"啟動全市場掃描：正在分析 {len(SCAN_UNIVERSE)} 檔潛力股...")
 
-    raw = yf.download(SCAN_UNIVERSE, period="4mo", auto_adjust=True, progress=False)
+    close_df = download_close_prices(SCAN_UNIVERSE, period="4mo")
 
-    if raw.empty or "Close" not in raw:
-        raise RuntimeError("無法取得掃描池資料，請檢查網路或 yfinance 資料源。")
-
-    close_df = raw["Close"].ffill().dropna(how="all")
+    if close_df.empty:
+        raise RuntimeError("無法取得掃描池資料，請檢查 FinMind / yfinance 資料源。")
 
     candidates = []
     for t in SCAN_UNIVERSE:
@@ -97,11 +95,9 @@ def get_market_signals(tickers):
     print("正在下載觀察名單與大盤數據...")
     all_tickers = list(dict.fromkeys(tickers + [BENCHMARK]))
 
-    raw = yf.download(all_tickers, period="2y", auto_adjust=True, progress=False)
-    if raw.empty or "Close" not in raw:
-        raise RuntimeError("無法取得市場資料，請檢查網路或 yfinance 資料源。")
-
-    close_df = raw["Close"].ffill().dropna(how="all")
+    close_df = download_close_prices(all_tickers, period="2y")
+    if close_df.empty:
+        raise RuntimeError("無法取得市場資料，請檢查 FinMind / yfinance 資料源。")
     signals = {}
 
     market_ok = False
