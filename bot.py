@@ -811,7 +811,7 @@ class ControlPanel(discord.ui.View):
             view=ControlPanel(page),
         )
 
-    @discord.ui.button(label="控制台", style=discord.ButtonStyle.secondary, custom_id="stock_bot:console", row=0)
+    @discord.ui.button(label="控制台", style=discord.ButtonStyle.primary, custom_id="stock_bot:console", row=0)
     async def console(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.switch_page(interaction, "home")
 
