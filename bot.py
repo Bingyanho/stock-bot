@@ -781,40 +781,72 @@ class ConsolePanel(discord.ui.View):
 
 
 class ControlPanel(discord.ui.View):
-    def __init__(self):
+    def __init__(self, page: str = "home"):
         super().__init__(timeout=None)
+        self.page = page
+        for item in list(self.children):
+            pages = getattr(item, "pages", None)
+            if pages is not None and page not in pages:
+                self.remove_item(item)
+
+    async def switch_page(self, interaction: discord.Interaction, page: str):
+        await interaction.response.edit_message(
+            content=control_panel_text(page),
+            view=ControlPanel(page),
+        )
 
     @discord.ui.button(label="控制台", style=discord.ButtonStyle.primary, custom_id="stock_bot:console", row=0)
     async def console(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("已重新開啟控制台。", ephemeral=True)
-        await send_panel(interaction.user)
+        await self.switch_page(interaction, "home")
+    console.pages = {"home", "sync", "settings", "query"}
 
-    @discord.ui.button(label="產生策略", style=discord.ButtonStyle.primary, custom_id="stock_bot:run_strategy", row=1)
+    @discord.ui.button(label="產生策略", style=discord.ButtonStyle.primary, custom_id="stock_bot:run_strategy", row=0)
     async def run_strategy(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("收到，開始分析。", ephemeral=True)
         await run_strategy_and_send(interaction.followup.send, interaction.user)
+    run_strategy.pages = {"home"}
 
-    @discord.ui.button(label="買進", style=discord.ButtonStyle.success, custom_id="stock_bot:buy", row=2)
+    @discord.ui.button(label="帳戶同步", style=discord.ButtonStyle.secondary, custom_id="stock_bot:page_sync", row=0)
+    async def page_sync(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.switch_page(interaction, "sync")
+    page_sync.pages = {"home"}
+
+    @discord.ui.button(label="帳戶設定", style=discord.ButtonStyle.secondary, custom_id="stock_bot:page_settings", row=0)
+    async def page_settings(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.switch_page(interaction, "settings")
+    page_settings.pages = {"home"}
+
+    @discord.ui.button(label="查詢", style=discord.ButtonStyle.secondary, custom_id="stock_bot:page_query", row=0)
+    async def page_query(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.switch_page(interaction, "query")
+    page_query.pages = {"home"}
+
+    @discord.ui.button(label="買進", style=discord.ButtonStyle.success, custom_id="stock_bot:buy", row=1)
     async def buy(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BuyModal())
+    buy.pages = {"sync"}
 
-    @discord.ui.button(label="賣出", style=discord.ButtonStyle.danger, custom_id="stock_bot:sell", row=2)
+    @discord.ui.button(label="賣出", style=discord.ButtonStyle.danger, custom_id="stock_bot:sell", row=1)
     async def sell(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(SellModal())
+    sell.pages = {"sync"}
 
-    @discord.ui.button(label="同步持股", style=discord.ButtonStyle.secondary, custom_id="stock_bot:holding", row=2)
+    @discord.ui.button(label="同步持股", style=discord.ButtonStyle.secondary, custom_id="stock_bot:holding", row=1)
     async def holding(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(HoldingModal())
+    holding.pages = {"sync"}
 
-    @discord.ui.button(label="修改現金", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cash", row=3)
+    @discord.ui.button(label="修改現金", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cash", row=1)
     async def cash(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CashModal())
+    cash.pages = {"settings"}
 
-    @discord.ui.button(label="修改投入成本", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cost", row=3)
+    @discord.ui.button(label="修改投入成本", style=discord.ButtonStyle.secondary, custom_id="stock_bot:cost", row=1)
     async def cost(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CostModal())
+    cost.pages = {"settings"}
 
-    @discord.ui.button(label="帳戶總覽", style=discord.ButtonStyle.secondary, custom_id="stock_bot:account", row=4)
+    @discord.ui.button(label="帳戶總覽", style=discord.ButtonStyle.secondary, custom_id="stock_bot:account", row=1)
     async def account(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         account = load_account(user_account_id(interaction.user))
@@ -823,22 +855,25 @@ class ControlPanel(discord.ui.View):
             f"💰 **{user_label(interaction.user)} 的帳戶總覽**\n{summary}",
             ephemeral=True,
         )
+    account.pages = {"query"}
 
-    @discord.ui.button(label="目前持股", style=discord.ButtonStyle.secondary, custom_id="stock_bot:holdings", row=4)
+    @discord.ui.button(label="目前持股", style=discord.ButtonStyle.secondary, custom_id="stock_bot:holdings", row=1)
     async def holdings(self, interaction: discord.Interaction, button: discord.ui.Button):
         account = load_account(user_account_id(interaction.user))
         await interaction.response.send_message(
             f"📊 **目前持股**\n{holdings_summary(account)}",
             ephemeral=True,
         )
+    holdings.pages = {"query"}
 
-    @discord.ui.button(label="交易紀錄", style=discord.ButtonStyle.secondary, custom_id="stock_bot:trades", row=4)
+    @discord.ui.button(label="交易紀錄", style=discord.ButtonStyle.secondary, custom_id="stock_bot:trades", row=1)
     async def trades(self, interaction: discord.Interaction, button: discord.ui.Button):
         account = load_account(user_account_id(interaction.user))
         await interaction.response.send_message(
             f"📒 **最近交易紀錄**\n{trade_history_summary(account)}",
             ephemeral=True,
         )
+    trades.pages = {"query"}
 
 # ==========================================
 # 3. 面板入口
@@ -846,19 +881,20 @@ class ControlPanel(discord.ui.View):
 PANEL_TRIGGERS = {"run"}
 
 
-CONTROL_PANEL_TEXT = """**股票帳戶操作面板**
-策略只提供建議；實際成交請用面板同步。
-
-**控制台**
-**策略**
-**帳戶同步**
-**帳戶設定**
-**查詢**"""
+def control_panel_text(page: str = "home") -> str:
+    title = "**股票帳戶操作面板**"
+    pages = {
+        "home": "策略只提供建議；實際成交請自行同步。",
+        "sync": "**帳戶同步**\n買進、賣出、同步持股。",
+        "settings": "**帳戶設定**\n修改現金與投入成本。",
+        "query": "**查詢**\n帳戶總覽、目前持股、交易紀錄。",
+    }
+    return f"{title}\n{pages.get(page, pages['home'])}"
 
 
 async def send_panel(user):
     await user.send(
-        CONTROL_PANEL_TEXT,
+        control_panel_text("home"),
         view=ControlPanel(),
     )
 
