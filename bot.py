@@ -119,10 +119,8 @@ def sync_buy(account_id: str, ticker: str, real_price: float, real_shares: int) 
     account["cash"] -= total_cost
     save_account(account, account_id)
     return (
-        f"✅ **買進對帳完成：{action} {ticker}**\n"
-        f"成交：{real_shares} 股 @ {real_price} 元\n"
-        f"手續費：{fee:,} 元\n"
-        f"目前現金：{account['cash']:,.0f} 元"
+        f"✅ 買進已同步｜{action} {get_name(ticker)}（{ticker}）\n"
+        f"{real_shares}股 @ {real_price:.2f}｜現金 {account['cash']:,.0f}"
     )
 
 
@@ -165,12 +163,10 @@ def sync_sell(account_id: str, ticker: str, real_price: float, real_shares: int 
         action = f"部分賣出，剩餘 {remaining} 股"
 
     save_account(account, account_id)
+    status = "全賣" if remaining == 0 else f"剩 {remaining}股"
     return (
-        f"✅ **賣出對帳完成：{ticker}**\n"
-        f"成交：{sell_shares} 股 @ {real_price} 元，{action}\n"
-        f"手續費：{fee:,} 元，證交稅：{tax:,} 元，入帳：{net:,.0f} 元\n"
-        f"本次損益：約 {pnl:,.0f} 元 ({pnl_pct:.2f}%)\n"
-        f"目前現金：{account['cash']:,.0f} 元"
+        f"✅ 賣出已同步｜{get_name(ticker)}（{ticker}）｜{status}\n"
+        f"{sell_shares}股 @ {real_price:.2f}｜損益 {pnl:,.0f} ({pnl_pct:.2f}%)｜現金 {account['cash']:,.0f}"
     )
 
 
@@ -179,11 +175,7 @@ def sync_cash(account_id: str, new_cash: float) -> str:
     old_cash = account.get("cash", 0)
     account["cash"] = new_cash
     save_account(account, account_id)
-    return (
-        f"✅ **帳戶現金校正完成！**\n"
-        f"原本餘額： {old_cash:,.0f} 元\n"
-        f"更新後餘額： **{new_cash:,.0f}** 元"
-    )
+    return f"✅ 現金已更新｜{old_cash:,.0f} → {new_cash:,.0f}"
 
 
 def sync_invested_capital(account_id: str, new_cost: float) -> str:
@@ -194,11 +186,7 @@ def sync_invested_capital(account_id: str, new_cost: float) -> str:
     old_cost = account.get("invested_capital", 0)
     account["invested_capital"] = new_cost
     save_account(account, account_id)
-    return (
-        f"✅ **投入成本已更新！**\n"
-        f"原本投入成本：{old_cost:,.0f} 元\n"
-        f"新的投入成本：**{new_cost:,.0f}** 元"
-    )
+    return f"✅ 投入成本已更新｜{old_cost:,.0f} → {new_cost:,.0f}"
 
 
 def sync_holding(account_id: str, ticker: str, shares: int, entry_price: float, peak_price: float = 0) -> str:
@@ -209,7 +197,7 @@ def sync_holding(account_id: str, ticker: str, shares: int, entry_price: float, 
     if shares <= 0:
         account["portfolio"] = [p for p in account.get("portfolio", []) if p.get("Ticker") != ticker]
         save_account(account, account_id)
-        return f"✅ 已從持股中移除 {ticker}，現金不變。"
+        return f"✅ 持股已移除｜{get_name(ticker)}（{ticker}）"
 
     if entry_price <= 0:
         raise ValueError("成本價必須大於 0。")
@@ -230,14 +218,13 @@ def sync_holding(account_id: str, ticker: str, shares: int, entry_price: float, 
     })
     save_account(account, account_id)
     return (
-        f"✅ **持股同步完成：{ticker}**\n"
-        f"{shares} 股 @ {entry_price} 元，高點 {pos['Peak_Price']} 元\n"
-        f"注意：此指令只改持股，不調整現金。"
+        f"✅ 持股已同步｜{get_name(ticker)}（{ticker}）\n"
+        f"{shares}股｜成本 {entry_price:.2f}｜高點 {pos['Peak_Price']:.2f}"
     )
 
 
 async def run_strategy_and_send(send, user):
-    await send("🚀 **啟動中...** 正在執行全市場掃描與策略計算，請稍候。")
+    await send("🚀 正在產生策略建議...")
 
     def run_strategy():
         from trend_trader import build_discord_embed, run_daily_strategy
@@ -370,7 +357,7 @@ class AccountPanel(discord.ui.View):
 
     @discord.ui.button(label="產生策略", style=discord.ButtonStyle.primary)
     async def run_strategy(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("收到，我開始跑策略。", ephemeral=True)
+        await interaction.response.send_message("收到，開始分析。", ephemeral=True)
         await run_strategy_and_send(interaction.followup.send, interaction.user)
 
     @discord.ui.button(label="買進", style=discord.ButtonStyle.success)
@@ -410,7 +397,7 @@ PANEL_TRIGGERS = {"run"}
 async def send_panel(user):
     await user.send(
         "**股票帳戶操作面板**\n"
-        "這是你的私人操作面板。策略建議、買進、賣出、現金、成本、同步持股與帳戶查詢都在這裡。",
+        "私人面板：策略、買進、賣出、現金、成本、持股、帳戶。",
         view=AccountPanel(),
     )
 
