@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -9,7 +10,12 @@ import yfinance as yf
 from config import FINMIND_TOKEN
 
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
-FINMIND_DATASET = "TaiwanStockPriceAdj"
+FINMIND_DATASETS = ("TaiwanStockPriceAdj", "TaiwanStockPrice")
+
+try:
+    yf.set_tz_cache_location(str(Path("/tmp/py-yfinance-cache")))
+except Exception:
+    pass
 
 
 def ticker_to_stock_id(ticker: str) -> str:
@@ -29,31 +35,43 @@ def resolve_dates(period: str | None = None, start: str | None = None, end: str 
     return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
 
 
-def fetch_finmind_ohlc(ticker: str, start: str, end: str) -> pd.DataFrame:
+def fetch_finmind_dataset(ticker: str, dataset: str, start: str, end: str) -> pd.DataFrame:
     params = {
-        "dataset": FINMIND_DATASET,
+        "dataset": dataset,
         "data_id": ticker_to_stock_id(ticker),
         "start_date": start,
         "end_date": end,
     }
+    headers = {}
     if FINMIND_TOKEN:
         params["token"] = FINMIND_TOKEN
+        headers["Authorization"] = f"Bearer {FINMIND_TOKEN}"
 
-    response = requests.get(FINMIND_URL, params=params, timeout=20)
+    response = requests.get(FINMIND_URL, params=params, headers=headers, timeout=20)
     response.raise_for_status()
     payload = response.json()
     data = payload.get("data", [])
     if not data:
         msg = payload.get("msg") or "no data"
-        raise ValueError(f"FinMind 無法取得 {ticker} 資料：{msg}")
+        raise ValueError(f"FinMind {dataset} 無法取得 {ticker} 資料：{msg}")
 
     df = pd.DataFrame(data)
     if "date" not in df or "open" not in df or "close" not in df:
-        raise ValueError(f"FinMind {ticker} 回傳欄位缺少 date/open/close")
+        raise ValueError(f"FinMind {dataset} {ticker} 回傳欄位缺少 date/open/close")
 
     df["date"] = pd.to_datetime(df["date"])
     df = df.set_index("date").sort_index()
     return df[["open", "close"]].astype(float)
+
+
+def fetch_finmind_ohlc(ticker: str, start: str, end: str) -> pd.DataFrame:
+    last_error = None
+    for dataset in FINMIND_DATASETS:
+        try:
+            return fetch_finmind_dataset(ticker, dataset, start, end)
+        except Exception as exc:
+            last_error = exc
+    raise ValueError(f"FinMind 無法取得 {ticker} 資料：{last_error}")
 
 
 def fetch_yfinance_ohlc(tickers: list[str], start: str, end: str):
