@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import asyncio
 import logging
+import re
 from datetime import datetime
 
 from account_store import load_account, save_account
@@ -54,6 +55,13 @@ def normalize_ticker(ticker: str) -> str:
     return ticker
 
 
+def require_stock_pool_ticker(ticker: str) -> str:
+    ticker = normalize_ticker(ticker)
+    if ticker not in STOCK_NAMES:
+        raise ValueError(f"{ticker} 不在目前股票池中，無法買進。")
+    return ticker
+
+
 def find_position(account: dict, ticker: str) -> dict | None:
     for pos in account.get("portfolio", []):
         if pos.get("Ticker") == ticker:
@@ -70,11 +78,12 @@ def account_summary(account: dict) -> str:
     msg = (
         f"投入成本：{account.get('invested_capital', 0):,.0f} 元\n"
         f"可用現金：{account.get('cash', 0):,.0f} 元\n"
+        f"持股數：{len(portfolio)}\n"
     )
     if not portfolio:
         return msg + "目前無持股。"
 
-    msg += "現有持股：\n"
+    msg += "\n持股：\n"
     for p in portfolio:
         msg += (
             f"- {p.get('Name', p['Ticker'])} ({p['Ticker']}): "
@@ -84,7 +93,7 @@ def account_summary(account: dict) -> str:
 
 
 def sync_buy(account_id: str, ticker: str, real_price: float, real_shares: int) -> str:
-    ticker = normalize_ticker(ticker)
+    ticker = require_stock_pool_ticker(ticker)
     if real_price <= 0 or real_shares <= 0:
         raise ValueError("價格與股數都必須大於 0。")
 
@@ -123,6 +132,33 @@ def sync_buy(account_id: str, ticker: str, real_price: float, real_shares: int) 
         f"✅ 買進已同步｜{action} {get_name(ticker)}（{ticker}）\n"
         f"{real_shares}股 @ {real_price:.2f}｜現金 {account['cash']:,.0f}"
     )
+
+
+def preview_buy(account_id: str, ticker: str, real_price: float, real_shares: int) -> tuple[str, str]:
+    ticker = require_stock_pool_ticker(ticker)
+    if real_price <= 0 or real_shares <= 0:
+        raise ValueError("價格與股數都必須大於 0。")
+
+    account = load_account(account_id)
+    pos = find_position(account, ticker)
+    gross = real_price * real_shares
+    fee = calc_fee(gross)
+    total_cost = gross + fee
+    current_cash = float(account.get("cash", 0))
+    old_cost = pos["Shares"] * pos["Entry_Price"] + pos.get("Buy_Fee", 0) if pos else 0
+    projected_cash = current_cash + old_cost - total_cost
+    action = "修正既有持股" if pos else "新增持股"
+    msg = (
+        f"請確認買進同步\n\n"
+        f"股票：{get_name(ticker)}（{ticker}）\n"
+        f"動作：{action}\n"
+        f"股數：{real_shares}\n"
+        f"價格：{real_price:.2f}\n"
+        f"手續費：{fee:,.0f}\n"
+        f"總成本：{total_cost:,.0f}\n"
+        f"同步後現金：{projected_cash:,.0f}"
+    )
+    return ticker, msg
 
 
 def sync_sell(account_id: str, ticker: str, real_price: float, real_shares: int = 0) -> str:
@@ -169,6 +205,47 @@ def sync_sell(account_id: str, ticker: str, real_price: float, real_shares: int 
         f"✅ 賣出已同步｜{get_name(ticker)}（{ticker}）｜{status}\n"
         f"{sell_shares}股 @ {real_price:.2f}｜損益 {pnl:,.0f} ({pnl_pct:.2f}%)｜現金 {account['cash']:,.0f}"
     )
+
+
+def preview_sell(account_id: str, ticker: str, real_price: float, real_shares: int = 0) -> tuple[str, int, str]:
+    ticker = normalize_ticker(ticker)
+    if real_price <= 0:
+        raise ValueError("價格必須大於 0。")
+
+    account = load_account(account_id)
+    pos = find_position(account, ticker)
+    if not pos:
+        raise ValueError(f"找不到 {ticker} 的持倉紀錄。")
+
+    held_shares = int(pos.get("Shares", 0))
+    sell_shares = held_shares if real_shares <= 0 else real_shares
+    if sell_shares <= 0 or sell_shares > held_shares:
+        raise ValueError(f"賣出股數不正確，目前持有 {held_shares} 股。")
+
+    gross = real_price * sell_shares
+    fee = calc_fee(gross)
+    tax = calc_tax(gross)
+    net = gross - fee - tax
+    entry_price = float(pos.get("Entry_Price", 0))
+    buy_fee = int(pos.get("Buy_Fee", 0))
+    allocated_buy_fee = int(round(buy_fee * sell_shares / held_shares)) if held_shares else 0
+    cost_basis = entry_price * sell_shares + allocated_buy_fee
+    pnl = net - cost_basis
+    pnl_pct = pnl / cost_basis * 100 if cost_basis > 0 else 0
+    projected_cash = float(account.get("cash", 0)) + net
+    status = "全賣" if sell_shares == held_shares else f"部分賣出，賣後剩 {held_shares - sell_shares} 股"
+    msg = (
+        f"請確認賣出同步\n\n"
+        f"股票：{get_name(ticker)}（{ticker}）\n"
+        f"動作：{status}\n"
+        f"股數：{sell_shares}\n"
+        f"價格：{real_price:.2f}\n"
+        f"手續費：{fee:,.0f}\n"
+        f"證交稅：{tax:,.0f}\n"
+        f"預估損益：{pnl:,.0f} ({pnl_pct:.2f}%)\n"
+        f"同步後現金：{projected_cash:,.0f}"
+    )
+    return ticker, sell_shares, msg
 
 
 def sync_cash(account_id: str, new_cash: float) -> str:
@@ -244,10 +321,99 @@ async def run_strategy_and_send(send, user):
 
     try:
         embed_data = await asyncio.to_thread(run_strategy)
-        await send(embed=discord.Embed.from_dict(embed_data))
+        await send(
+            embed=discord.Embed.from_dict(build_strategy_summary_embed(embed_data)),
+            view=StrategyDetailView(user.id, embed_data),
+        )
     except Exception as e:
         logger.error(f"策略執行失敗：{e}")
         await send(f"❌ **策略執行失敗：** {e}")
+
+
+def extract_stock_names(text: str) -> list[str]:
+    known_names = set(STOCK_NAMES.values())
+    names = []
+    for name in re.findall(r"\*\*(.*?)\*\*", text or ""):
+        clean = name.strip()
+        if clean in known_names and clean not in names:
+            names.append(clean)
+    return names
+
+
+def summarize_signal_text(text: str) -> str:
+    names = extract_stock_names(text)
+    return "、".join(names) if names else "無"
+
+
+def build_strategy_summary_embed(embed_data: dict) -> dict:
+    fields = embed_data.get("fields", [])
+    sell_value = fields[0]["value"] if len(fields) > 0 else ""
+    buy_value = fields[1]["value"] if len(fields) > 1 else ""
+    return {
+        "title": embed_data.get("title", "今日策略建議"),
+        "description": embed_data.get("description", ""),
+        "color": embed_data.get("color", 0x2F80ED),
+        "fields": [
+            {
+                "name": "賣出建議",
+                "value": summarize_signal_text(sell_value),
+                "inline": False,
+            },
+            {
+                "name": "買進建議",
+                "value": summarize_signal_text(buy_value),
+                "inline": False,
+            },
+        ],
+        "footer": embed_data.get("footer", {}),
+    }
+
+
+class StrategyDetailView(discord.ui.View):
+    def __init__(self, owner_id: int, embed_data: dict):
+        super().__init__(timeout=600)
+        self.owner_id = owner_id
+        self.embed_data = embed_data
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("這是別人的策略面板。", ephemeral=True)
+            return False
+        return True
+
+    def field_value(self, index: int) -> str:
+        fields = self.embed_data.get("fields", [])
+        if index >= len(fields):
+            return "無資料。"
+        return fields[index].get("value") or "無資料。"
+
+    async def send_detail(self, interaction: discord.Interaction, title: str, index: int):
+        embed = discord.Embed(
+            title=title,
+            description=self.field_value(index)[:4096],
+            color=self.embed_data.get("color", 0x2F80ED),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="賣出詳情", style=discord.ButtonStyle.secondary)
+    async def sell_detail(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.send_detail(interaction, "賣出建議詳情", 0)
+
+    @discord.ui.button(label="買進詳情", style=discord.ButtonStyle.secondary)
+    async def buy_detail(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.send_detail(interaction, "買進建議詳情", 1)
+
+    @discord.ui.button(label="持股與帳戶", style=discord.ButtonStyle.secondary)
+    async def account_detail(self, interaction: discord.Interaction, button: discord.ui.Button):
+        fields = self.embed_data.get("fields", [])
+        holdings = fields[2].get("value", "無資料。") if len(fields) > 2 else "無資料。"
+        account = fields[3].get("value", "無資料。") if len(fields) > 3 else "無資料。"
+        embed = discord.Embed(
+            title="持股與帳戶摘要",
+            description=f"{holdings[:1800]}\n\n{account[:1800]}",
+            color=self.embed_data.get("color", 0x2F80ED),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 def parse_float(value: str, field_name: str) -> float:
@@ -264,6 +430,62 @@ def parse_int(value: str, field_name: str) -> int:
         raise ValueError(f"{field_name} 必須是整數。") from exc
 
 
+class ConfirmBuyView(discord.ui.View):
+    def __init__(self, owner_id: int, account_id: str, ticker: str, price: float, shares: int):
+        super().__init__(timeout=120)
+        self.owner_id = owner_id
+        self.account_id = account_id
+        self.ticker = ticker
+        self.price = price
+        self.shares = shares
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("這不是你的確認訊息。", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="確認同步", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            msg = sync_buy(self.account_id, self.ticker, self.price, self.shares)
+            await interaction.response.edit_message(content=msg, view=None)
+        except ValueError as e:
+            await interaction.response.edit_message(content=f"⚠️ {e}", view=None)
+
+    @discord.ui.button(label="取消", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="已取消買進同步。", view=None)
+
+
+class ConfirmSellView(discord.ui.View):
+    def __init__(self, owner_id: int, account_id: str, ticker: str, price: float, shares: int):
+        super().__init__(timeout=120)
+        self.owner_id = owner_id
+        self.account_id = account_id
+        self.ticker = ticker
+        self.price = price
+        self.shares = shares
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("這不是你的確認訊息。", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="確認同步", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            msg = sync_sell(self.account_id, self.ticker, self.price, self.shares)
+            await interaction.response.edit_message(content=msg, view=None)
+        except ValueError as e:
+            await interaction.response.edit_message(content=f"⚠️ {e}", view=None)
+
+    @discord.ui.button(label="取消", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="已取消賣出同步。", view=None)
+
+
 class BuyModal(discord.ui.Modal, title="同步買進成交"):
     ticker = discord.ui.TextInput(label="股票名稱 / 代號", placeholder="例如 2330、6274 或 2330.TW")
     shares = discord.ui.TextInput(label="股數", placeholder="例如 100")
@@ -271,13 +493,20 @@ class BuyModal(discord.ui.Modal, title="同步買進成交"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            msg = sync_buy(
-                user_account_id(interaction.user),
+            account_id = user_account_id(interaction.user)
+            price = parse_float(str(self.price), "成交價")
+            shares = parse_int(str(self.shares), "股數")
+            ticker, msg = preview_buy(
+                account_id,
                 str(self.ticker),
-                parse_float(str(self.price), "成交價"),
-                parse_int(str(self.shares), "股數"),
+                price,
+                shares,
             )
-            await interaction.response.send_message(msg)
+            await interaction.response.send_message(
+                msg,
+                view=ConfirmBuyView(interaction.user.id, account_id, ticker, price, shares),
+                ephemeral=True,
+            )
         except ValueError as e:
             await interaction.response.send_message(f"⚠️ {e}", ephemeral=True)
 
@@ -294,13 +523,20 @@ class SellModal(discord.ui.Modal, title="同步賣出成交"):
     async def on_submit(self, interaction: discord.Interaction):
         try:
             share_text = str(self.shares).strip()
-            msg = sync_sell(
-                user_account_id(interaction.user),
+            account_id = user_account_id(interaction.user)
+            price = parse_float(str(self.price), "成交價")
+            shares = parse_int(share_text, "股數") if share_text else 0
+            ticker, sell_shares, msg = preview_sell(
+                account_id,
                 str(self.ticker),
-                parse_float(str(self.price), "成交價"),
-                parse_int(share_text, "股數") if share_text else 0,
+                price,
+                shares,
             )
-            await interaction.response.send_message(msg)
+            await interaction.response.send_message(
+                msg,
+                view=ConfirmSellView(interaction.user.id, account_id, ticker, price, sell_shares),
+                ephemeral=True,
+            )
         except ValueError as e:
             await interaction.response.send_message(f"⚠️ {e}", ephemeral=True)
 
@@ -430,8 +666,8 @@ async def on_message(message):
         except discord.Forbidden:
             logger.warning(f"無法私訊使用者：{message.author}")
 
-# 啟動機器人
-if not TOKEN:
-    logger.error("❌ 請在 .env 檔中填入 DISCORD_BOT_TOKEN")
-else:
-    bot.run(TOKEN)
+if __name__ == "__main__":
+    if not TOKEN:
+        logger.error("❌ 請在 .env 檔中填入 DISCORD_BOT_TOKEN")
+    else:
+        bot.run(TOKEN)
