@@ -1,5 +1,6 @@
 import unittest
 import tempfile
+from unittest.mock import patch
 
 import account_store
 import bot
@@ -12,6 +13,33 @@ class BotHelperTest(unittest.TestCase):
     def test_require_stock_pool_ticker_rejects_unknown_ticker(self):
         with self.assertRaises(ValueError):
             bot.require_stock_pool_ticker("6770")
+
+    def test_sync_holding_rejects_unknown_ticker(self):
+        old_accounts_dir = account_store.ACCOUNTS_DIR
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                account_store.ACCOUNTS_DIR = tmp
+                with self.assertRaises(ValueError):
+                    bot.sync_holding("tester", "6770", 100, 65.0)
+        finally:
+            account_store.ACCOUNTS_DIR = old_accounts_dir
+
+    @patch("bot.estimate_account_equity", return_value=295599)
+    def test_account_summary_does_not_include_holding_details(self, _estimate):
+        account = {
+            "cash": 110000,
+            "invested_capital": 200000,
+            "portfolio": [{"Ticker": "2303.TW", "Name": "聯電", "Shares": 526, "Entry_Price": 73.6}],
+        }
+
+        summary = bot.account_summary(account)
+
+        self.assertIn("現金：110,000", summary)
+        self.assertIn("投入成本：200,000", summary)
+        self.assertIn("估算總資產：295,599", summary)
+        self.assertIn("報酬率：47.80%", summary)
+        self.assertIn("持股數：1", summary)
+        self.assertNotIn("聯電", summary)
 
     def test_strategy_summary_only_lists_stock_names(self):
         detailed = {

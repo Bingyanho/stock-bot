@@ -58,7 +58,7 @@ def normalize_ticker(ticker: str) -> str:
 def require_stock_pool_ticker(ticker: str) -> str:
     ticker = normalize_ticker(ticker)
     if ticker not in STOCK_NAMES:
-        raise ValueError(f"{ticker} 不在目前股票池中，無法買進。")
+        raise ValueError(f"{ticker} 不在目前股票池中，無法同步。")
     return ticker
 
 
@@ -79,21 +79,45 @@ def now_str() -> str:
 
 def account_summary(account: dict) -> str:
     portfolio = account.get("portfolio", [])
-    msg = (
-        f"投入成本：{account.get('invested_capital', 0):,.0f} 元\n"
-        f"可用現金：{account.get('cash', 0):,.0f} 元\n"
-        f"持股數：{len(portfolio)}\n"
+    cash = float(account.get("cash", 0))
+    invested_capital = float(account.get("invested_capital", 0))
+    current_equity = estimate_account_equity(account)
+    return_rate = ((current_equity - invested_capital) / invested_capital * 100) if invested_capital > 0 else 0
+    return (
+        f"現金：{cash:,.0f}\n"
+        f"投入成本：{invested_capital:,.0f}\n"
+        f"估算總資產：{current_equity:,.0f}\n"
+        f"報酬率：{return_rate:.2f}%\n"
+        f"持股數：{len(portfolio)}"
     )
-    if not portfolio:
-        return msg + "目前無持股。"
 
-    msg += "\n持股：\n"
-    for p in portfolio:
-        msg += (
-            f"- {p.get('Name', p['Ticker'])} ({p['Ticker']}): "
-            f"{p['Shares']} 股 @ {p['Entry_Price']}，高點 {p.get('Peak_Price', p['Entry_Price'])}\n"
-        )
-    return msg
+
+def estimate_account_equity(account: dict) -> float:
+    portfolio = account.get("portfolio", [])
+    cash = float(account.get("cash", 0))
+    if not portfolio:
+        return cash
+
+    prices = {}
+    tickers = [p.get("Ticker") for p in portfolio if p.get("Ticker")]
+    try:
+        from data_provider import download_close_prices
+
+        close_df = download_close_prices(tickers, period="4mo")
+        if not close_df.empty:
+            last_prices = close_df.ffill().iloc[-1]
+            prices = {ticker: float(last_prices[ticker]) for ticker in tickers if ticker in last_prices}
+    except Exception as exc:
+        logger.warning(f"帳戶總覽行情估算失敗，改用成本價估算：{exc}")
+
+    stock_value = 0.0
+    for pos in portfolio:
+        ticker = pos.get("Ticker")
+        shares = float(pos.get("Shares", 0))
+        price = prices.get(ticker, float(pos.get("Entry_Price", 0)))
+        gross = shares * price
+        stock_value += gross - calc_fee(gross) - calc_tax(gross)
+    return cash + stock_value
 
 
 def holdings_summary(account: dict) -> str:
@@ -355,7 +379,7 @@ def sync_invested_capital(account_id: str, new_cost: float) -> str:
 
 
 def sync_holding(account_id: str, ticker: str, shares: int, entry_price: float, peak_price: float = 0) -> str:
-    ticker = normalize_ticker(ticker)
+    ticker = require_stock_pool_ticker(ticker)
     account = load_account(account_id)
     pos = find_position(account, ticker)
 
@@ -721,9 +745,11 @@ class QueryPanel(discord.ui.View):
 
     @discord.ui.button(label="帳戶總覽", style=discord.ButtonStyle.secondary, custom_id="stock_bot:account")
     async def account(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         account = load_account(user_account_id(interaction.user))
-        await interaction.response.send_message(
-            f"💰 **{user_label(interaction.user)} 的帳戶狀態**\n{account_summary(account)}",
+        summary = await asyncio.to_thread(account_summary, account)
+        await interaction.followup.send(
+            f"💰 **{user_label(interaction.user)} 的帳戶總覽**\n{summary}",
             ephemeral=True,
         )
 
