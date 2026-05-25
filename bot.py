@@ -3,10 +3,10 @@ from discord.ext import commands
 import asyncio
 import logging
 import re
-from datetime import datetime
 
 from account_store import load_account, save_account
 from config import COOLDOWN_DAYS, DISCORD_BOT_TOKEN, STOCK_NAMES, calc_fee, calc_tax, get_name
+from time_utils import taipei_date_str, taipei_datetime_str
 
 # ==========================================
 # 1. 設定區
@@ -70,11 +70,11 @@ def find_position(account: dict, ticker: str) -> dict | None:
 
 
 def today_str() -> str:
-    return datetime.today().strftime("%Y-%m-%d")
+    return taipei_date_str()
 
 
 def now_str() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return taipei_datetime_str()
 
 
 def account_summary(account: dict) -> str:

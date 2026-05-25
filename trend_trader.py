@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import warnings
 
 from account_store import load_account, save_account
+from time_utils import taipei_now, taipei_datetime_str
 from config import (
     BENCHMARK,
     COOLDOWN_DAYS,
@@ -81,7 +82,7 @@ def update_dynamic_watchlist():
     top_stocks = [c["Ticker"] for c in candidates[:TARGET_WATCHLIST_SIZE]]
 
     with open(WATCHLIST_FILE, "w", encoding="utf-8") as f:
-        f.write(f"# 機器人自動掃描更新時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"# 機器人自動掃描更新時間: {taipei_datetime_str()}\n")
         f.write("# 選股邏輯: 收盤 > 20MA > 60MA，依 10 日動能排序前 20 名\n")
         f.write("\n".join(top_stocks))
 
@@ -212,7 +213,7 @@ def run_daily_strategy(account_id=None):
     portfolio = account["portfolio"]
     cooldowns = account["cooldowns"]
 
-    today = datetime.today()
+    today = taipei_now().replace(tzinfo=None)
     today_str = today.strftime("%Y-%m-%d")
 
     # 【修正】將持股代號也加入訊號下載，確保庫存中的股票一定會被監控
@@ -453,7 +454,7 @@ def build_discord_embed(account, current_equity, market_status, sell_msg, buy_ms
             }
         ],
         "footer": {
-            "text": f"更新時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            "text": f"更新時間：{taipei_datetime_str()}"
         }
     }
 
