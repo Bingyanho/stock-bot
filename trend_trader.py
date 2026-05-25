@@ -132,6 +132,7 @@ def get_market_signals(tickers):
 
         signals[t] = {
             "Close": float(c.iloc[-1]),
+            "Price_Date": c.index[-1].strftime("%Y-%m-%d"),
             "MA5": float(ma5),
             "MA20": float(ma20),
             "MA60": float(ma60),
@@ -380,15 +381,19 @@ def run_daily_strategy(account_id=None):
 
     # 估算真實帳戶目前權益：只讀取帳戶與行情，不假設建議已成交。
     stock_value = 0
+    price_dates = []
     for p in portfolio:
         if p["Ticker"] in signals:
             price = signals[p["Ticker"]]["Close"]
+            if signals[p["Ticker"]].get("Price_Date"):
+                price_dates.append(signals[p["Ticker"]]["Price_Date"])
             gross_val = p["Shares"] * price
             est_sell_fee = calc_fee(gross_val)
             est_sell_tax = calc_tax(gross_val)
             stock_value += (gross_val - est_sell_fee - est_sell_tax)
             
     current_equity = cash + stock_value
+    account["price_date"] = max(price_dates) if price_dates else "無行情"
 
     return account, current_equity, market_status, sell_msg, buy_msg, watchlist
 
@@ -448,7 +453,8 @@ def build_discord_embed(account, current_equity, market_status, sell_msg, buy_ms
                     f"投入成本：**{invested_capital:,.0f}**\n"
                     f"估算總資產：**{current_equity:,.0f}**\n"
                     f"報酬率：**{return_rate:.2f}%**\n"
-                    f"持股數：**{len(portfolio)}**"
+                    f"持股數：**{len(portfolio)}**\n"
+                    f"行情日期：**{account.get('price_date', '無行情')}**"
                 ),
                 "inline": False
             }

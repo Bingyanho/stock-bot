@@ -81,24 +81,26 @@ def account_summary(account: dict) -> str:
     portfolio = account.get("portfolio", [])
     cash = float(account.get("cash", 0))
     invested_capital = float(account.get("invested_capital", 0))
-    current_equity = estimate_account_equity(account)
+    current_equity, price_date = estimate_account_equity(account)
     return_rate = ((current_equity - invested_capital) / invested_capital * 100) if invested_capital > 0 else 0
     return (
         f"現金：{cash:,.0f}\n"
         f"投入成本：{invested_capital:,.0f}\n"
         f"估算總資產：{current_equity:,.0f}\n"
         f"報酬率：{return_rate:.2f}%\n"
-        f"持股數：{len(portfolio)}"
+        f"持股數：{len(portfolio)}\n"
+        f"行情日期：{price_date}"
     )
 
 
-def estimate_account_equity(account: dict) -> float:
+def estimate_account_equity(account: dict) -> tuple[float, str]:
     portfolio = account.get("portfolio", [])
     cash = float(account.get("cash", 0))
     if not portfolio:
-        return cash
+        return cash, "無持股"
 
     prices = {}
+    price_date = "成本價估算"
     tickers = [p.get("Ticker") for p in portfolio if p.get("Ticker")]
     try:
         from data_provider import download_close_prices
@@ -107,6 +109,7 @@ def estimate_account_equity(account: dict) -> float:
         if not close_df.empty:
             last_prices = close_df.ffill().iloc[-1]
             prices = {ticker: float(last_prices[ticker]) for ticker in tickers if ticker in last_prices}
+            price_date = close_df.index[-1].strftime("%Y-%m-%d")
     except Exception as exc:
         logger.warning(f"帳戶總覽行情估算失敗，改用成本價估算：{exc}")
 
@@ -117,7 +120,7 @@ def estimate_account_equity(account: dict) -> float:
         price = prices.get(ticker, float(pos.get("Entry_Price", 0)))
         gross = shares * price
         stock_value += gross - calc_fee(gross) - calc_tax(gross)
-    return cash + stock_value
+    return cash + stock_value, price_date
 
 
 def holdings_summary(account: dict) -> str:

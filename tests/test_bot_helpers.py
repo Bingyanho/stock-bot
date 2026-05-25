@@ -24,7 +24,7 @@ class BotHelperTest(unittest.TestCase):
         finally:
             account_store.ACCOUNTS_DIR = old_accounts_dir
 
-    @patch("bot.estimate_account_equity", return_value=295599)
+    @patch("bot.estimate_account_equity", return_value=(295599, "2026-05-22"))
     def test_account_summary_does_not_include_holding_details(self, _estimate):
         account = {
             "cash": 110000,
@@ -39,6 +39,7 @@ class BotHelperTest(unittest.TestCase):
         self.assertIn("估算總資產：295,599", summary)
         self.assertIn("報酬率：47.80%", summary)
         self.assertIn("持股數：1", summary)
+        self.assertIn("行情日期：2026-05-22", summary)
         self.assertNotIn("聯電", summary)
 
     def test_strategy_summary_only_lists_stock_names(self):
